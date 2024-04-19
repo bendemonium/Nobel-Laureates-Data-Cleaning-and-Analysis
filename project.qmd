@@ -1,5 +1,5 @@
 ---
-title: "stat_project"
+title: "stat"
 format: html
 editor: visual
 ---
@@ -30,11 +30,6 @@ laureates <- laureates |>
   rename(`Physiology or Medicine` = `Physiologyor Medicine`,
          Economics = `Economics(The Sveriges Riksbank Prize)[13][a]`) |>
   mutate(Year = as.numeric(Year))
-```
-
-```{r}
-laureates |>
-  glimpse()
 ```
 
 ```{r}
@@ -105,8 +100,16 @@ Orgs
 counts <- counts |>
   mutate(Organization = 0) |>
   mutate(Organization = ifelse(Year %in% c(1904, 1910, 1917,
-                                         1944, 1947, 1938) & Category == "Peace", 1, Organization)) |>
-  mutate(Organization = ifelse(Year == 1963 & Category == "Peace", 2, Organization))
+                                         1944, 1947, 1938) & Category == "Peace", 1, Organization),
+         Organization = ifelse(Year == 1963 & Category == "Peace", 2, Organization),
+         Male = Total - (Female + Organization)) 
+```
+
+```{r}
+counts <- counts |>
+  pivot_longer(cols = c(Female, Total, Organization, Male), 
+               names_to = "CountType", 
+               values_to = "Count")
 ```
 
 ```{r}
@@ -114,7 +117,147 @@ counts
 ```
 
 ```{r}
+library(ggplot2)
+theme_set(theme_bw())
+```
+
+```{r}
+count_fil <- counts |>
+  filter(!CountType=='Total')
+```
+
+```{r}
+count_fil |>
+  ggplot(aes(x = Year, y= Count, color = CountType)) +
+  geom_point(alpha = 0.5) +
+  facet_wrap(~ Category, scales = "free_y")
+```
+
+```{r}
+count_total <- counts |>
+  filter(CountType == "Total") |>
+  group_by(Year) |>
+  summarise(Total = sum(Count, na.rm = TRUE))
+ggplot(count_total, aes(x = Year, y = Total)) +
+  geom_line() +
+  geom_smooth(method = "lm", se = TRUE)
+  
+```
+
+```{r}
+count_fil |>
+  ggplot(aes(x = Year, y= Count, color = CountType)) +
+  geom_line() +
+  facet_wrap(~ Category, scales = "free_y")
+```
+
+```{r}
+ggplot(count_fil, aes(x = Year, y = Count, color = Category, group = Category)) +
+  geom_line() +
+  facet_grid(rows = vars(CountType), scales = "fixed") +
+  labs(title = "Counts by Year and Category",
+       x = "Year",
+       y = "Count",
+       color = "Category") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+        strip.text.x = element_text(size = 12, face = "bold")) 
 
 ```
 
-ehdnjk3e
+```{r}
+proportions <- count_fil |>
+  group_by(Year) |>
+  summarise(Female_prop = sum(Count[CountType == "Female"]) / sum(Count),
+            Male_prop = sum(Count[CountType == "Male"]) / sum(Count),
+            Org_prop = sum(Count[CountType == "Organization"]) / sum(Count))
+```
+
+```{r}
+count_fil
+```
+
+```{r}
+ count_fil |>
+    ggplot() +
+    geom_col(aes(x = Year,
+                y = Count,
+                fill = as.factor(CountType)),
+           position = "fill", 
+           color= "black", 
+           linewidth = 0.1) +
+    facet_wrap(~season, 
+             scales = "free_x") +
+    theme(legend.position = "top",
+          strip.background = element_blank(),
+          strip.text.x = element_blank()) +
+    labs(y = "Topic Percentage Share")
+```
+
+```{r}
+count_fil |>
+  ggplot(aes(x = Count, y = as.factor(Year), fill=CountType)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Count",
+       y = "Year") +
+  theme(legend.position = "top") 
+```
+
+Regression
+
+```{r}
+library(parsnip)
+library(recipes)
+library(workflows)
+library(dplyr)
+library(rsample)
+```
+
+```{r}
+set.seed(123)  
+split <- initial_split(counts, prop = 0.8, strata = "Category")
+train_data <- training(split)
+test_data <- testing(split)
+```
+
+```{r}
+rec <- recipe(Count ~ ., data = train_data)
+```
+
+```{r}
+# GLM model
+glm_mod <- linear_reg() |>
+  set_engine("glm") |>
+  set_mode("regression")
+
+# Decision tree model
+tree_mod <- decision_tree() |>
+  set_engine("rpart") |>
+  set_mode("regression")
+```
+
+```{r}
+# GLM workflow
+glm_wf <- workflow() |>
+  add_recipe(rec) |>
+  add_model(glm_mod)
+
+# Decision tree workflow
+tree_wf <- workflow() |>
+  add_recipe(rec) |>
+  add_model(tree_mod)
+```
+
+```{r}
+glm_fit <- glm_wf |> fit(data = train_data)
+tree_fit <- tree_wf |> fit(data = train_data)
+```
+
+```{r}
+glm_pred <- glm_fit |> predict(new_data = test_data)
+tree_pred <- tree_fit |> predict(new_data = test_data)
+```
+
+```{r}
+
+```
