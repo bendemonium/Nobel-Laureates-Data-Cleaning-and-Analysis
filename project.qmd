@@ -186,7 +186,7 @@ count_fil
            position = "fill", 
            color= "black", 
            linewidth = 0.1) +
-    facet_wrap(~season, 
+    facet_wrap(~Category, 
              scales = "free_x") +
     theme(legend.position = "top",
           strip.background = element_blank(),
@@ -201,63 +201,4 @@ count_fil |>
   labs(x = "Count",
        y = "Year") +
   theme(legend.position = "top") 
-```
-
-Regression
-
-```{r}
-library(parsnip)
-library(recipes)
-library(workflows)
-library(dplyr)
-library(rsample)
-```
-
-```{r}
-set.seed(123)  
-split <- initial_split(counts, prop = 0.8, strata = "Category")
-train_data <- training(split)
-test_data <- testing(split)
-```
-
-```{r}
-rec <- recipe(Count ~ ., data = train_data)
-```
-
-```{r}
-# GLM model
-glm_mod <- linear_reg() |>
-  set_engine("glm") |>
-  set_mode("regression")
-
-# Decision tree model
-tree_mod <- decision_tree() |>
-  set_engine("rpart") |>
-  set_mode("regression")
-```
-
-```{r}
-# GLM workflow
-glm_wf <- workflow() |>
-  add_recipe(rec) |>
-  add_model(glm_mod)
-
-# Decision tree workflow
-tree_wf <- workflow() |>
-  add_recipe(rec) |>
-  add_model(tree_mod)
-```
-
-```{r}
-glm_fit <- glm_wf |> fit(data = train_data)
-tree_fit <- tree_wf |> fit(data = train_data)
-```
-
-```{r}
-glm_pred <- glm_fit |> predict(new_data = test_data)
-tree_pred <- tree_fit |> predict(new_data = test_data)
-```
-
-```{r}
-
 ```
