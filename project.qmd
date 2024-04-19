@@ -4,23 +4,115 @@ format: html
 editor: visual
 ---
 
-## Quarto
-
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
-
-## Running Code
-
-When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+## Scraping
 
 ```{r}
-1 + 1
+library(rvest)
+library(dplyr)
+library(tidyr)
 ```
-
-You can add options to executable code like this
 
 ```{r}
-#| echo: false
-2 * 2
+source <- "https://en.wikipedia.org/wiki/List_of_Nobel_laureates"
+page <- read_html(source)
+tables <- html_table(page, fill = TRUE)
+laureates <- tables[[1]]
+laureates <- as_tibble(laureates)
 ```
 
-The `echo: false` option disables the printing of code (only output is displayed).
+```{r}
+laureates |>
+  glimpse()
+```
+
+```{r}
+laureates <- laureates |>
+  rename(`Physiology or Medicine` = `Physiologyor Medicine`,
+         Economics = `Economics(The Sveriges Riksbank Prize)[13][a]`) |>
+  mutate(Year = as.numeric(Year))
+```
+
+```{r}
+laureates |>
+  glimpse()
+```
+
+```{r}
+laureates <- laureates |>
+  pivot_longer(
+    cols = -Year, 
+    names_to = "Category",
+    values_to = "Laureates"  # Create a new column for the laureates
+  ) |>
+  separate_rows(Laureates, sep = ";") |>
+  filter(!grepl("—", Laureates))
+```
+
+```{r}
+laureates
+```
+
+```{r}
+counts <- laureates |>
+  group_by(Year, Category) |>
+  summarize(Total = n())
+```
+
+Now that we have the list of the Nobel Prize Laureates, we will find which of them are women. For that we'll have to source another page and a table from it.
+
+```{r}
+source <- "https://en.wikipedia.org/wiki/List_of_female_Nobel_laureates"
+page <- read_html(source)
+tables <- html_table(page, fill = TRUE)
+female <- tables[[2]]
+female <-female |>
+  select(-c(X3,X7,X6,X5,X1)) |>
+  mutate(Category = NA) |>
+  rename(Year = X2,
+         Laureate = X4) |>
+  mutate(Year = as.numeric(Year))
+```
+
+```{r}
+female$Category[3:15] <- "Physiology or Medicine"
+female$Category[18:22] <- "Physics"
+female$Category[25:32] <- "Chemistry"
+female$Category[35:51] <- "Literature"
+female$Category[54:72] <- "Peace"
+female$Category[75:77] <- "Economics"
+
+female <- female[-c(1,2,16,17,23,24,33,34,52,53,73,74), ]
+```
+
+```{r}
+female_counts <- female |>
+  group_by(Year, Category) |>
+  summarize(Female = n())
+```
+
+```{r}
+counts <- left_join(counts, female_counts, by = c("Year", "Category"))
+```
+
+```{r}
+counts <- counts |>
+  mutate(Female = replace_na(Female, 0))
+```
+
+Orgs
+
+```{r}
+counts <- counts |>
+  mutate(Organization = 0) |>
+  mutate(Organization = ifelse(Year %in% c(1904, 1910, 1917,
+                                         1944, 1947, 1938) & Category == "Peace", 1, Organization)) |>
+  mutate(Organization = ifelse(Year == 1963 & Category == "Peace", 2, Organization))
+```
+
+```{r}
+counts
+```
+
+```{r}
+
+```
