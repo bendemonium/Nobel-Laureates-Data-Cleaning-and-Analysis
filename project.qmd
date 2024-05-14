@@ -1,10 +1,23 @@
 ---
-title: "stat"
+title: "Nobel Prize Laureates: Statistical Analysis"
 format: html
 editor: visual
+author: Ridhi Bandaru
 ---
 
-## Scraping
+The distribution of Nobel Laureates across different categories has shown fascinating trends over the years, reflecting shifts in global priorities and advancements in knowledge. The Nobel Prize categories---Peace, Literature, Chemistry, Physics, Physiology or Medicine, and Economic Sciences---each tell a story of human progress and values. Historically, categories like Physics and Chemistry have seen a steady influx of laureates, underscoring the consistent investment and innovation in scientific research. Medicine has similarly highlighted significant breakthroughs in health and biology, crucial for enhancing life expectancy and combating diseases. The Peace prize, often influenced by geopolitical dynamics, has varied more significantly year by year, highlighting moments of intense conflict resolution and diplomatic achievements. Literature and Economic Sciences, while smaller in laureate numbers, provide insights into the cultural and economic theories that shaped societies during different periods. The evolution in the distribution of these prizes not only marks advancements in various fields but also reflects the changing focus of global recognition towards areas like economics and peace in recent decades, emphasizing the Nobel Committee's responsiveness to current global issues and achievements.
+
+My project aims to delve deeply into the historical trends of Nobel Laureates across various categories, exploring how these trends have evolved over time in response to global changes in physics, chemistry, literature, economics, and medicine/physiology. By analyzing patterns from past data, I will employ statistical models and predictive analytics to forecast the number of laureates in each category in upcoming years. This approach will not only allow me to identify consistent patterns and anomalies within the data but also provide insights into potential future shifts in the focus areas of the Nobel committees.
+
+## Part I: Scraping, Merging, Cleaning
+
+To begin my project, I'll scrape data from three Wikipedia pages dedicated to Nobel Laureates. These pages contain valuable information about laureates across various categories, including their names, affiliations, and the year they were awarded the prize. Using web scraping techniques, I'll extract structured data from these pages using rvest. This data will form the basis of my analysis, enabling me to explore historical trends and develop predictive models to forecast future Nobel Laureates.
+
+#### Sources
+
+1.  List of Nobel laureates - https://en.wikipedia.org/wiki/List_of_Nobel_laureates
+2.  List of female Nobel laureates - https://en.wikipedia.org/wiki/List_of_female_Nobel_laureates
+3.  List of organizations nominated for the Nobel Peace Prize - https://en.wikipedia.org/wiki/List_of_organizations_nominated_for_the_Nobel_Peace_Prize
 
 ```{r}
 library(rvest)
@@ -94,7 +107,7 @@ counts <- counts |>
   mutate(Female = replace_na(Female, 0))
 ```
 
-Orgs
+Next, we'll move onto the organizations.
 
 ```{r}
 counts <- counts |>
@@ -112,9 +125,13 @@ counts <- counts |>
                values_to = "Count")
 ```
 
+And we finally have our dataset
+
 ```{r}
 counts
 ```
+
+## Part II: Data Exploration
 
 ```{r}
 library(ggplot2)
@@ -144,12 +161,16 @@ ggplot(count_total, aes(x = Year, y = Total)) +
   
 ```
 
+It woud appear the the total number of awardees have steadily increased over the years.
+
 ```{r}
 count_fil |>
   ggplot(aes(x = Year, y= Count, color = CountType)) +
   geom_line() +
   facet_wrap(~ Category, scales = "free_y")
 ```
+
+Here we see the distributions.
 
 ```{r}
 ggplot(count_fil, aes(x = Year, y = Count, color = Category, group = Category)) +
@@ -174,10 +195,6 @@ proportions <- count_fil |>
 ```
 
 ```{r}
-count_fil
-```
-
-```{r}
  count_fil |>
     ggplot() +
     geom_col(aes(x = Year,
@@ -194,6 +211,8 @@ count_fil
     labs(y = "Topic Percentage Share")
 ```
 
+Here are the proportions.
+
 ```{r}
 count_fil |>
   ggplot(aes(x = Count, y = as.factor(Year), fill=CountType)) +
@@ -202,3 +221,254 @@ count_fil |>
        y = "Year") +
   theme(legend.position = "top") 
 ```
+
+## **Part III: Modeling**
+
+We will try 5 models: linear regression, KNN, linear regression with lasso, random forest and support vector machine.
+
+```{r}
+library(tidymodels)
+library(workflows)
+
+linear_reg_model <- linear_reg() |>  # Using linear regression
+  set_engine("lm") |>              
+  set_mode("regression") 
+
+# Define the recipe
+recipe <- recipe( Count ~ ., data = counts) |>
+  step_normalize(all_numeric_predictors(), -all_outcomes()) |>
+  step_dummy(all_nominal(), -all_outcomes())
+
+# Define workflow_A
+workflow_A <- workflow() |>
+  add_model(linear_reg_model) |>
+  add_recipe(recipe)
+```
+
+```{r}
+library(kknn)
+
+# Define the KNN model
+knn_model <- nearest_neighbor(neighbors = 10) |>
+  set_engine("kknn") |>
+  set_mode("regression")
+
+# Define workflow_C with the same recipe as workflow_A
+workflow_C <- workflow() |>
+  add_model(knn_model) |>
+  add_recipe(recipe)
+```
+
+```{r}
+linear_lasso_model <- linear_reg(penalty = 0) |>  
+  set_engine("glmnet") |>                     
+  set_mode("regression")  
+
+workflow_B <- workflow() |>
+  add_model(linear_lasso_model) |>
+  add_recipe(recipe)
+```
+
+```{r}
+# Define the random forest model using the ranger engine
+rf_model <- rand_forest() |>
+  set_engine("ranger") |>
+  set_mode("regression")
+
+workflow_D <- workflow() |>
+  add_model(rf_model) |>
+  add_recipe(recipe)
+```
+
+```{r}
+svm_model <- svm_poly(degree = 2) |>  # Using polynomial kernel of degree 2
+  set_engine("kernlab") |>             # Setting the engine
+  set_mode("regression")       
+
+workflow_E <- workflow() |>
+  add_model(svm_model) |>
+  add_recipe(recipe)
+
+```
+
+Here we merge them all to effectively fit them onto our train data.
+
+```{r}
+workflow_names <- c("lin_reg", 
+                    "knn",
+                    "lin_lasso",
+                    "rf",
+                    "svm")
+
+workflow_objects <- list(workflow_A,
+                         workflow_B,
+                         workflow_C,
+                         workflow_D,
+                         workflow_E)
+
+workflows_tbl <- tibble(work_names = workflow_names,
+                        work_objects = workflow_objects) 
+```
+
+## Part IV: Model Selection
+
+I start off by splitting my data into train and test sets.
+
+```{r}
+counts <- na.omit(counts)
+counts_split <- initial_split(counts, 
+                              prop = 0.70)
+train <- counts_split |>
+  training()
+
+test <- counts_split |>
+  testing()
+```
+
+Then we move onto predictions.
+
+```{r}
+workflows_tbl <- workflows_tbl |>
+  rowwise() |>
+  mutate(fits = list(fit(work_objects, 
+                         train)))
+```
+
+```{r}
+workflows_tbl <- workflows_tbl |>
+  mutate(predictions = list(predict(fits,
+                                    test)))
+```
+
+```{r}
+predictions_tbl  <- workflows_tbl |>
+  select(work_names, 
+         predictions) |>
+  unnest(cols = c(predictions))
+```
+
+```{r}
+predictions_tbl <- predictions_tbl |>
+  cbind(count = test |>
+          pull(Count))
+```
+
+## Part V: Model Assessment
+
+It would appear, visually, the lasso model works the best.
+
+```{r}
+predictions_tbl |>
+ ggplot(aes(x = count, 
+            y = .pred)) +
+  geom_point(alpha = 0.2) +
+  facet_wrap(~work_names, nrow = 2) +
+  geom_abline(slope = 1, linetype = "dotted", color = "red") +
+  coord_obs_pred() # a special coordinate function from the tidymodels family
+```
+
+Let's check out some metrics.
+
+```{r}
+metrics <- metric_set(yardstick::rmse,
+                          rsq, 
+                          yardstick::mae)
+
+predictions_metrics <- predictions_tbl |>
+  group_by(work_names) |>
+  metrics(truth = count, estimate = .pred)
+```
+
+```{r}
+predictions_metrics  |> ggplot(aes(y = work_names, 
+                                    x = .estimate, 
+                                    fill = work_names)) + 
+  geom_col() +
+  facet_wrap(~.metric)
+```
+
+It would appear that the linear regression models are a little consistently better, even though all the models are almost equally bad.
+
+## **Part VI: Future winners!**
+
+Let's take a short detour! Let's try and predict the number of laureates in the future using what we think is the best model: the linear regression model.
+
+```{r}
+years <- seq(2025, 2050, by = 5)
+
+categories <- c("Economics", "Literature", "Physiology or Medicine", "Chemistry", "Physics", "Literature")
+count_types <- c("Total", "Female", "Male", "Organization")
+
+future <- expand.grid(Year = years, Category = categories, CountType = count_types)
+```
+
+```{r}
+trained_workflow <- workflow_A|> 
+  fit(data = train)
+future_preds <- predict(trained_workflow, new_data = future) |>
+    bind_cols(future) |>
+    mutate(.pred = ceiling(.pred))
+```
+
+```{r}
+future_preds
+```
+
+```{r}
+write.csv(counts, "Nobel_laureates.csv", row.names = TRUE)
+write.csv(future, "future_predictions.csv", row.names = TRUE)
+```
+
+## Part VII: Uncertainty Quantification
+
+```{r}
+bootstrap_set <- train  |>
+  bootstraps(times = 20)
+```
+
+```{r}
+workflows_bootstrap <- workflows_tbl |>
+  mutate(fits = list(fit_resamples(work_objects,
+                                         bootstrap_set,
+                                         metrics = metrics))) |>
+  mutate(metrics = list(collect_metrics(fits)))
+```
+
+```{r}
+comparison <- predictions_metrics |>
+  select(work_names) |>
+  mutate(estimate = predictions_metrics |> pull(.estimate))
+```
+
+```{r}
+workflows_boot_results <- workflows_bootstrap |>
+  select(work_names,
+         metrics) |>
+  unnest(metrics) |>
+  select(work_names,
+         mean) |>
+  arrange(work_names)
+
+comparison <- comparison |>
+  mutate(estimate_boot = workflows_boot_results |> pull(mean))
+comparison |>
+  pivot_longer(!work_names,
+               names_prefix = "estimate_") |>
+  ggplot(aes(y = work_names,
+             x = value,
+             color = name)) +
+  geom_jitter(width = 0,
+              height = 0.1,
+              alpha = 0.6) +
+  labs(y = "Workflow",
+       x = "Performance estimate") +
+  theme(legend.position = "none")
+```
+
+All of the models seem equally bad.
+
+## Results
+
+In conclusion, the analysis suggests that in the short term, there are no significant trends in the number of Nobel Prize recipients. However, over the long run, there is a noticeable steep increase. This observation prompts further exploration into the underlying factors driving this trend. The initial graphics suggest that it's very erractic short term and there are too many fluctuations. It appears that all five of our models failed to find anything valuable too.
+
+One potential avenue for future research could involve examining the trends in proportions or the countries of origin of Nobel Laureates. By investigating these aspects, we may uncover additional insights into the evolving landscape of Nobel Prize awards and the factors shaping them over time. This deeper understanding could provide valuable perspectives for researchers, policymakers, and stakeholders interested in the dynamics of excellence and innovation recognized by the Nobel Committee.
